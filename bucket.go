@@ -32,7 +32,7 @@ type bucket struct {
 
 func newBucket(name, parentPath string, db *DB) (b *bucket, err error) {
 	path := filepath.Join(parentPath, db.encodeKey(name))
-	if err = os.MkdirAll(path, 0755); err != nil {
+	if err = os.MkdirAll(path, 0o755); err != nil {
 		return nil, err
 	}
 	b = &bucket{
@@ -150,7 +150,7 @@ func (b *bucket) PutTimedFunc(key string, fn func(w io.Writer) error, expireAfte
 	)
 	defer b.db.lk.Lock(path).Unlock()
 
-	if f, err = os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err != nil {
+	if f, err = os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644); err != nil {
 		return
 	}
 	defer os.Remove(tmpPath) // this will error if os.Rename doesn't fail, which is fine
@@ -226,7 +226,7 @@ func (b *bucket) AppendFunc(key string, fn func(w io.Writer) error, middlewares 
 		wc     io.WriteCloser
 	)
 	defer b.db.lk.Lock(path).Unlock()
-	if f, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644); err != nil {
+	if f, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644); err != nil {
 		return
 	}
 
@@ -419,6 +419,30 @@ func (b *bucket) Delete(key string) (err error) {
 		b.files.Delete(path)
 	}
 	b.mux.Unlock()
+	return
+}
+
+func (b *bucket) Rename(key, nkey string) (err error) {
+	b.mux.Lock()
+	defer b.mux.Unlock()
+	if fi, ok := b.keys[key]; ok {
+		path := filepath.Join(b.path, fi.Name())
+		defer b.db.lk.Lock(path).Unlock()
+		npath := filepath.Join(b.path, filepath.Clean(nkey))
+		defer b.db.lk.Lock(npath).Unlock()
+		if err = os.Rename(path, npath); err != nil {
+			return
+		}
+
+		delete(b.keys, key)
+		b.files.Delete(path)
+
+		var st os.FileInfo
+		if st, err = os.Stat(npath); err != nil {
+			return
+		}
+		b.keys[nkey] = st
+	}
 	return
 }
 
