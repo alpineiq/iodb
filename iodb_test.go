@@ -396,6 +396,69 @@ func TestGetAndRename(t *testing.T) {
 	rc.Close()
 }
 
+func TestRename(t *testing.T) {
+	var (
+		tmpDir string
+		db     *DB
+		b, nb  Bucket
+		err    error
+	)
+
+	if tmpDir, err = ioutil.TempDir("", "iodb-TestGetRename"); err != nil {
+		t.Fatal(err)
+	}
+
+	if !keepTmp {
+		defer os.RemoveAll(tmpDir)
+	}
+
+	if db, err = New(tmpDir, &Options{
+		PlainFileNames: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if b, err = db.CreateBucket("TestOrig"); err != nil {
+		t.Fatal(err)
+	}
+
+	if nb, err = db.CreateBucket("TestNew"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = b.Put("license", strings.NewReader(data)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = b.Rename("license", nb, "license"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = b.Get("license"); err != os.ErrNotExist {
+		t.Fatal("found license in original bucket, but we shouldn't have")
+	}
+
+	var rc io.ReadCloser
+	if rc, err = nb.Get("license"); err != nil {
+		t.Fatal("didn't find licence in the new bucket")
+	}
+	rc.Close()
+
+	if err = nb.Rename("license", nb, "license.archived"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = nb.Get("license"); err != os.ErrNotExist {
+		t.Fatal("found license in new bucket, but we shouldn't have")
+	}
+
+	if rc, err = nb.Get("license.archived"); err != nil {
+		t.Fatal("didn't find licence in the new bucket")
+	}
+	rc.Close()
+}
+
 func TestExport(t *testing.T) {
 	tmpDir, err := ioutil.TempDir("", "iodb-TestExport")
 	if err != nil {

@@ -25,6 +25,9 @@ const (
 
 	// ErrKeyExists is returned when the key exists for a write action with overwrite set to false
 	ErrKeyExists = oerrs.String("key already exists")
+
+	// ErrSamePath is returned when the same path is used for a bucket
+	ErrSamePath = oerrs.String("same path")
 )
 
 func b64EncodeName(p string) string {

@@ -146,7 +146,7 @@ type Bucket interface {
 	Buckets(rev bool) (out []string)
 	CreateBucket(names ...string) (Bucket, error)
 	Delete(key string) (err error)
-	Rename(key, nkey string) (err error)
+	Rename(key string, nBkt Bucket, nKey string) (err error)
 	DeleteBucket(name string) (err error)
 	ForEach(fn func(key string, value io.Reader) error, middlewares ...mw.Middleware) error
 	ForEachReverse(fn func(key string, value io.Reader) error, middlewares ...mw.Middleware) error

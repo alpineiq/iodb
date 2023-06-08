@@ -422,27 +422,51 @@ func (b *bucket) Delete(key string) (err error) {
 	return
 }
 
-func (b *bucket) Rename(key, nkey string) (err error) {
+func (b *bucket) Rename(key string, nBkt Bucket, nKey string) (err error) {
 	b.mux.Lock()
 	defer b.mux.Unlock()
-	if fi, ok := b.keys[key]; ok {
-		path := filepath.Join(b.path, fi.Name())
-		defer b.db.lk.Lock(path).Unlock()
-		npath := filepath.Join(b.path, filepath.Clean(nkey))
-		defer b.db.lk.Lock(npath).Unlock()
-		if err = os.Rename(path, npath); err != nil {
-			return
-		}
-
-		delete(b.keys, key)
-		b.files.Delete(path)
-
-		var st os.FileInfo
-		if st, err = os.Stat(npath); err != nil {
-			return
-		}
-		b.keys[nkey] = st
+	fi, ok := b.keys[key]
+	if !ok {
+		return os.ErrNotExist
 	}
+	var nb *bucket
+	switch v := nBkt.(type) {
+	case *bucket:
+		nb = v
+	case *group:
+		nb = v.bucket
+	default:
+		return ErrInvalidBucketType
+	}
+
+	path := filepath.Join(b.path, fi.Name())
+	npath := filepath.Join(nb.path, filepath.Clean(nKey))
+	if npath == path {
+		return ErrSamePath
+	}
+
+	defer b.db.lk.Lock(path).Unlock()
+	defer nb.db.lk.Lock(npath).Unlock()
+
+	if err = os.Rename(path, npath); err != nil {
+		return
+	}
+
+	delete(b.keys, key)
+	b.files.Delete(path)
+
+	var st os.FileInfo
+	if st, err = os.Stat(npath); err != nil {
+		return
+	}
+
+	if nb != b {
+		nb.mux.Lock()
+		defer nb.mux.Unlock()
+	}
+
+	nb.keys[nKey] = st
+
 	return
 }
 

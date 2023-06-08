@@ -7,4 +7,5 @@ require (
 	github.com/golang/snappy v0.0.3
 	go.oneofone.dev/oerrs v1.0.7-0.20221003171156-2726106fc553
 	golang.org/x/sys v0.1.0 // indirect
+	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 )
