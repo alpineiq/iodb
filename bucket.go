@@ -7,12 +7,12 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/alpineiq/iodb/mw"
+	"go.oneofone.dev/genh"
 	"go.oneofone.dev/oerrs"
 )
 
@@ -639,7 +639,7 @@ func (b *bucket) Export(w io.Writer, exclude ...string) (err error) {
 
 	)
 
-	if len(b.path) > rootPathLen && slices.Contains(exclude, b.path[rootPathLen:]) {
+	if len(b.path) > rootPathLen && genh.Contains(exclude, b.path[rootPathLen:]) {
 		return nil
 	}
 
@@ -662,7 +662,7 @@ func (b *bucket) Export(w io.Writer, exclude ...string) (err error) {
 			rd      *Reader
 		)
 
-		if slices.Contains(exclude, tarPath) {
+		if genh.Contains(exclude, tarPath) {
 			continue
 		}
 
