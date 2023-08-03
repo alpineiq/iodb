@@ -50,19 +50,19 @@ func (db *DB) Bucket(names ...string) Bucket {
 	return db.root.Bucket(names...)
 }
 
-// Export exports the database to a tar file.
-func (db *DB) Export(w io.Writer) error {
-	return db.root.Export(w)
-}
-
 // Import imports the database from a tar file.
 func (db *DB) Import(r io.Reader) error {
 	return db.root.Import(r)
 }
 
+// Export exports the database to a tar file.
+func (db *DB) Export(w io.Writer, exclude ...string) error {
+	return db.root.Export(w, exclude...)
+}
+
 // ExportFile exports the entire database to a tar file.
 // If the file has the gz suffix, it will be automatically compressed.
-func (db *DB) ExportFile(fn string) error {
+func (db *DB) ExportFile(fn string, exclude ...string) error {
 	f, err := os.Create(fn)
 	if err != nil {
 		return err
@@ -137,7 +137,8 @@ type Bucket interface {
 	PutFunc(key string, fn func(w io.Writer) error, middlewares ...mw.Middleware) (err error)
 	PutTimed(key string, r io.Reader, expireAfter time.Duration, middlewares ...mw.Middleware) (err error)
 	PutTimedFunc(key string, fn func(w io.Writer) error, expireAfter time.Duration, middlewares ...mw.Middleware) (err error)
-	Export(w io.Writer) (err error)
+	Import(r io.Reader) (err error)
+	Export(w io.Writer, exclude ...string) (err error)
 	Stat(key string) (fi os.FileInfo, err error)
 	SetExtraData(fileKey, key string, val string) error
 	GetExtraData(fileKey, key string) (out string)

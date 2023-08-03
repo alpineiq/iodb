@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -630,12 +631,17 @@ func (b *bucket) Import(r io.Reader) error {
 	return nil
 }
 
-func (b *bucket) Export(w io.Writer) (err error) {
+func (b *bucket) Export(w io.Writer, exclude ...string) (err error) {
 	var (
 		tw          *tar.Writer
 		el          oerrs.ErrorList
 		rootPathLen = len(b.db.root.path) + 1 // strip the physical part of the path
+
 	)
+
+	if len(b.path) > rootPathLen && slices.Contains(exclude, b.path[rootPathLen:]) {
+		return nil
+	}
 
 	if otw, ok := w.(*tar.Writer); ok {
 		tw = otw
@@ -655,6 +661,11 @@ func (b *bucket) Export(w io.Writer) (err error) {
 			hdr     *tar.Header
 			rd      *Reader
 		)
+
+		if slices.Contains(exclude, tarPath) {
+			continue
+		}
+
 		if hdr, err = tar.FileInfoHeader(fi, ""); err != nil {
 			el.PushIf(err)
 			return
@@ -672,13 +683,12 @@ func (b *bucket) Export(w io.Writer) (err error) {
 		_, err = io.Copy(tw, rd)
 		rd.Close()
 		if err != nil {
-			el.PushIf(err)
 			return
 		}
 	}
 
 	for _, cb := range b.buckets {
-		if err = cb.Export(tw); err != nil {
+		if err = cb.Export(tw, exclude...); err != nil {
 			el.PushIf(err)
 			return
 		}

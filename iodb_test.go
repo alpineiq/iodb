@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -459,7 +458,7 @@ func TestExport(t *testing.T) {
 	if !keepTmp {
 		defer os.RemoveAll(tmpDir)
 	}
-	log.Println(tmpDir)
+
 	// create a new empty database
 	db, err := New(tmpDir, &Options{PlainFileNames: true})
 	if err != nil {
@@ -497,7 +496,7 @@ func TestExport(t *testing.T) {
 	var buf bytes.Buffer
 
 	// export the database to an in-memory buffer as a tar
-	if err = db.Export(&buf); err != nil {
+	if err = db.Export(&buf, "Child Bucket/Child Child Bucket"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -519,8 +518,8 @@ func TestExport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := db2.Bucket("Child Bucket", "Child Child Bucket").Get("license"); err != nil {
-		t.Fatal(err)
+	if b := db2.Bucket("Child Bucket", "Child Child Bucket"); b != nil {
+		t.Fatal("expected nil, got", b)
 	}
 	// r := bytes.NewReader(buf.Bytes())
 	// tr := tar.NewReader(r)
