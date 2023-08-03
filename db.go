@@ -1,7 +1,6 @@
 package iodb
 
 import (
-	"compress/gzip"
 	"io"
 	"log"
 	"math/big"
@@ -19,21 +18,15 @@ const ErrFileDoesNotExist = oerrs.String("file does not exist")
 // Options allows a bit of customization for iodb.
 type Options struct {
 	Middleware     []mw.Middleware
-	MaxOpenFiles   int // if set to 0, it will use the default 1024, -1 will use (ulimit -n) - 100
 	PlainFileNames bool
 }
 
-var defOpts = Options{
-	MaxOpenFiles: 1024, // probably should set this higher on production
-}
+var defOpts = Options{}
 
 type DB struct {
 	root *bucket
 	opts *Options
-
-	maxFilesSem *semaphore
-
-	lk *pathLocker
+	lk   *pathLocker
 }
 
 func New(path string, opts *Options) (*DB, error) {
@@ -41,21 +34,9 @@ func New(path string, opts *Options) (*DB, error) {
 		opts = &defOpts
 	}
 
-	switch opts.MaxOpenFiles {
-	case 0:
-		opts.MaxOpenFiles = defOpts.MaxOpenFiles
-	case -1:
-		opts.MaxOpenFiles = ulimitMaxOpen() - 100
-	}
-
-	if opts.MaxOpenFiles == 0 {
-		opts.MaxOpenFiles = defOpts.MaxOpenFiles
-	}
-
 	db := &DB{
-		opts:        opts,
-		maxFilesSem: &semaphore{ch: make(chan struct{}, opts.MaxOpenFiles)},
-		lk:          newPathLocker(),
+		opts: opts,
+		lk:   newPathLocker(),
 	}
 	b, err := newBucket("", path, db)
 	if err != nil {
@@ -74,6 +55,11 @@ func (db *DB) Export(w io.Writer) error {
 	return db.root.Export(w)
 }
 
+// Import imports the database from a tar file.
+func (db *DB) Import(r io.Reader) error {
+	return db.root.Import(r)
+}
+
 // ExportFile exports the entire database to a tar file.
 // If the file has the gz suffix, it will be automatically compressed.
 func (db *DB) ExportFile(fn string) error {
@@ -83,13 +69,7 @@ func (db *DB) ExportFile(fn string) error {
 	}
 
 	var el oerrs.ErrorList
-	if strings.HasSuffix(fn, "gz") {
-		gz := gzip.NewWriter(f)
-		el.PushIf(db.Export(gz))
-		el.PushIf(gz.Close())
-	} else {
-		el.PushIf(db.Export(f))
-	}
+	el.PushIf(db.Export(f))
 	el.PushIf(f.Close())
 	return el.Err()
 }
@@ -102,12 +82,7 @@ func (db *DB) Group(mws ...mw.Middleware) Bucket {
 	return &group{db.root, mws}
 }
 
-func (db *DB) NumOpenFiles() int {
-	return len(db.maxFilesSem.ch)
-}
-
 func (db *DB) Close() error {
-	db.maxFilesSem.Close()
 	db.lk.Close()
 	return nil
 }
@@ -134,7 +109,7 @@ func (db *DB) decodeKey(key string) (string, error) {
 func checkValidKey(key string) {
 	const badChars = "\x00\xff/\\:%?*|\"><"
 	if key != "." && key != ".." && strings.ContainsAny(key, badChars) {
-		log.Panicf("%s uses an invalid character (one of %q)", key, badChars)
+		log.Panicf("%q uses an invalid character (one of %q)", key, badChars)
 	}
 }
 

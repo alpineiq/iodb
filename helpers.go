@@ -2,13 +2,10 @@ package iodb
 
 import (
 	"encoding/base64"
-	"log"
 	"os"
 	"sort"
 	"strconv"
-	"sync"
 	"sync/atomic"
-	"syscall"
 
 	"go.oneofone.dev/oerrs"
 )
@@ -85,39 +82,6 @@ func (k keyList) Paths(rev bool) []string {
 	return []string(out)
 }
 
-type semaphore struct {
-	ch     chan struct{}
-	wg     sync.WaitGroup
-	closed int32
-}
-
-var e struct{}
-
-func (s *semaphore) Acquire() bool {
-	if atomic.LoadInt32(&s.closed) == 1 {
-		return false
-	}
-	select {
-	case s.ch <- e:
-	default:
-		log.Printf("reached max number of open files (%d), blocking.", cap(s.ch))
-		s.ch <- e
-	}
-	s.wg.Add(1)
-	return true
-}
-
-func (s *semaphore) Release() {
-	s.wg.Done()
-	<-s.ch
-}
-
-func (s *semaphore) Close() {
-	atomic.StoreInt32(&s.closed, 1)
-	s.wg.Wait()
-	close(s.ch)
-}
-
 var tmpFileCounter uint64
 
 func tmpFileName(path string) string {
@@ -152,15 +116,4 @@ func lsDir(dir string) (files, dirs []os.FileInfo, err error) {
 	}
 
 	return
-}
-
-func ulimitMaxOpen() int {
-	var rl syscall.Rlimit
-
-	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rl); err != nil {
-		log.Printf("error getting RLIMIT_NOFILE: %v, defaulting to %d", err, defOpts.MaxOpenFiles)
-		return defOpts.MaxOpenFiles
-	}
-
-	return int(rl.Cur)
 }

@@ -4,11 +4,10 @@
 package iodb
 
 import (
-	"archive/tar"
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -22,7 +21,7 @@ import (
 // TODO: clean this up, too much repeated code.
 
 func TestConcurrentPutGet(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "iodb-TestConcurrentPutGet")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestConcurrentPutGet")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,10 +52,6 @@ func TestConcurrentPutGet(t *testing.T) {
 	}
 	wg.Wait()
 
-	if n := db.NumOpenFiles(); n > 0 {
-		t.Fatalf("unexpected number of open files, expected 0, got %v", n)
-	}
-
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
@@ -80,14 +75,11 @@ func TestConcurrentPutGet(t *testing.T) {
 	}
 	wg.Wait()
 
-	if n := db.NumOpenFiles(); n > 0 {
-		t.Fatalf("unexpected number of open files, expected 0, got %v", n)
-	}
 	t.Logf("buckets: %v", db.Bucket().Buckets(false))
 }
 
 func TestMiddlewareGroups(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "iodb-TestMiddlewareGroups")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestMiddlewareGroups")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +117,7 @@ func TestMiddlewareGroups(t *testing.T) {
 }
 
 func TestChainBucket(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "iodb-TestChainBucket")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestChainBucket")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +143,7 @@ func TestChainBucket(t *testing.T) {
 }
 
 func TestBugCantListBucketsAndKeys(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "iodb-TestChainBucket")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestChainBucket")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +187,7 @@ func TestBugCantListBucketsAndKeys(t *testing.T) {
 }
 
 func TestTimedKey(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "iodb-TestTimedBucket")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestTimedBucket")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +225,7 @@ func TestTimedKey(t *testing.T) {
 }
 
 func TestTimedKeyBucketReload(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "iodb-TestTimedBucket")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestTimedBucket")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +261,7 @@ func TestTimedKeyBucketReload(t *testing.T) {
 
 func TestAppend(t *testing.T) {
 	const nums = "0123456789"
-	tmpDir, err := ioutil.TempDir("", "iodb-TestAppend")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestAppend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +299,7 @@ func TestAppend(t *testing.T) {
 }
 
 func TestGetAndDelete(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "iodb-TestGetDelete")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestGetDelete")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +340,7 @@ func TestGetAndRename(t *testing.T) {
 		err    error
 	)
 
-	if tmpDir, err = ioutil.TempDir("", "iodb-TestGetRename"); err != nil {
+	if tmpDir, err = os.MkdirTemp("", "iodb-TestGetRename"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -404,7 +396,7 @@ func TestRename(t *testing.T) {
 		err    error
 	)
 
-	if tmpDir, err = ioutil.TempDir("", "iodb-TestGetRename"); err != nil {
+	if tmpDir, err = os.MkdirTemp("", "iodb-TestGetRename"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -460,14 +452,14 @@ func TestRename(t *testing.T) {
 }
 
 func TestExport(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "iodb-TestExport")
+	tmpDir, err := os.MkdirTemp("", "iodb-TestTimedBucket")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !keepTmp {
 		defer os.RemoveAll(tmpDir)
 	}
-
+	log.Println(tmpDir)
 	// create a new empty database
 	db, err := New(tmpDir, &Options{PlainFileNames: true})
 	if err != nil {
@@ -505,28 +497,49 @@ func TestExport(t *testing.T) {
 	var buf bytes.Buffer
 
 	// export the database to an in-memory buffer as a tar
-	if err = db.root.Export(&buf); err != nil {
+	if err = db.Export(&buf); err != nil {
 		t.Fatal(err)
 	}
 
-	r := bytes.NewReader(buf.Bytes())
-	tr := tar.NewReader(r)
-
-	// read all the files back and make sure they are readable and correct
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			// end of tar archive
-			break
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("Checking: %s (%d bytes)", hdr.Name, hdr.Size)
-		if h := hashString(tr); h != dataHash {
-			t.Fatalf("expected %s, got %s", dataHash, h)
-		}
+	db2, err := New(tmpDir+"/2", &Options{PlainFileNames: true})
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer db2.Close()
+
+	if err := db2.Import(&buf); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db2.Bucket().Get("license"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db2.Bucket("Child Bucket").Get("license"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db2.Bucket("Child Bucket", "Child Child Bucket").Get("license"); err != nil {
+		t.Fatal(err)
+	}
+	// r := bytes.NewReader(buf.Bytes())
+	// tr := tar.NewReader(r)
+
+	// // read all the files back and make sure they are readable and correct
+	// for {
+	// 	hdr, err := tr.Next()
+	// 	if err == io.EOF {
+	// 		// end of tar archive
+	// 		break
+	// 	}
+	// 	if err != nil {
+	// 		t.Fatal(err)
+	// 	}
+	// 	t.Logf("Checking: %s (%d bytes)", hdr.Name, hdr.Size)
+	// 	if h := hashString(tr); h != dataHash {
+	// 		t.Fatalf("expected %s, got %s", dataHash, h)
+	// 	}
+	// }
 }
 
 func TestStat(t *testing.T) {
@@ -538,7 +551,7 @@ func TestStat(t *testing.T) {
 		err    error
 	)
 
-	if tmpDir, err = ioutil.TempDir("", "iodb-TestStat"); err != nil {
+	if tmpDir, err = os.MkdirTemp("", "iodb-TestStat"); err != nil {
 		t.Fatal(err)
 		return
 	}

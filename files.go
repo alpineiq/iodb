@@ -39,14 +39,12 @@ func newROFile(path string, fs *files) *file {
 }
 
 type file struct {
-	f  *os.File
-	st os.FileInfo
-
-	p  string
-	fs *files
-
-	readers int16
+	st      os.FileInfo
+	f       *os.File
+	fs      *files
+	p       string
 	mux     sync.Mutex
+	readers int16
 }
 
 func (f *file) Fd() int {
@@ -60,7 +58,6 @@ func (f *file) close() {
 		f.fs.Delete(f.p)
 		f.f.Close()
 		f.f = nil
-		f.fs.sem.Release()
 	}
 	f.mux.Unlock()
 }
@@ -69,13 +66,9 @@ func (f *file) Reader() (r *Reader, err error) {
 	f.mux.Lock()
 	defer f.mux.Unlock()
 	if f.f == nil {
-		if !f.fs.sem.Acquire() {
-			return nil, ErrClosing
-		}
 		if f.f, err = os.Open(f.p); err != nil {
 			if os.IsNotExist(err) {
 				f.fs.Delete(f.p)
-				f.fs.sem.Release()
 				err = os.ErrNotExist
 			}
 			return
@@ -91,13 +84,12 @@ func (f *file) Reader() (r *Reader, err error) {
 	return
 }
 
-func newFiles(sem *semaphore) *files {
-	return &files{m: map[string]*file{}, sem: sem}
+func newFiles() *files {
+	return &files{m: map[string]*file{}}
 }
 
 type files struct {
 	m   map[string]*file
-	sem *semaphore
 	mux sync.RWMutex
 }
 
@@ -108,7 +100,7 @@ func (fs *files) Get(path string) (rc *Reader, err error) {
 	fs.mux.RUnlock()
 	if !ok {
 		fs.mux.Lock()
-		if f, ok = fs.m[path]; !ok { //in case it got loaded between the RUnlock and Lock
+		if f, ok = fs.m[path]; !ok { // in case it got loaded between the RUnlock and Lock
 			f = newROFile(path, fs)
 			fs.m[path] = f
 		}

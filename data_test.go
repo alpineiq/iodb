@@ -5,7 +5,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"strings"
@@ -27,7 +26,7 @@ func hashString(r io.Reader) string {
 }
 
 func readString(r io.Reader) string {
-	b, _ := ioutil.ReadAll(r)
+	b, _ := io.ReadAll(r)
 	return string(b)
 }
 
