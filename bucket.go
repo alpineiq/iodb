@@ -7,6 +7,8 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,19 +17,14 @@ import (
 )
 
 type bucket struct {
-	name string
-	path string
-
-	files *files
-
-	db *DB
-
+	files   *files
+	db      *DB
 	keys    keyList
 	buckets buckets
-
-	mux sync.RWMutex
-
-	meta *metadata
+	meta    *metadata
+	name    string
+	path    string
+	mux     sync.RWMutex
 }
 
 func newBucket(name, parentPath string, db *DB) (b *bucket, err error) {
@@ -40,7 +37,7 @@ func newBucket(name, parentPath string, db *DB) (b *bucket, err error) {
 		path: path,
 		db:   db,
 
-		files: newFiles(db.maxFilesSem),
+		files: newFiles(),
 	}
 
 	if b.meta, err = loadMetadata(b.path); err != nil {
@@ -137,11 +134,6 @@ func (b *bucket) Get(key string, middlewares ...mw.Middleware) (_ io.ReadCloser,
 }
 
 func (b *bucket) PutTimedFunc(key string, fn func(w io.Writer) error, expireAfter time.Duration, middlewares ...mw.Middleware) (err error) {
-	if !b.db.maxFilesSem.Acquire() {
-		return ErrClosing
-	}
-
-	defer b.db.maxFilesSem.Release()
 	var (
 		encKey  = b.db.encodeKey(key)
 		path    = filepath.Join(b.path, encKey)
@@ -214,11 +206,6 @@ func (b *bucket) Append(key string, r io.Reader, middlewares ...mw.Middleware) (
 }
 
 func (b *bucket) AppendFunc(key string, fn func(w io.Writer) error, middlewares ...mw.Middleware) (err error) {
-	if !b.db.maxFilesSem.Acquire() {
-		return ErrClosing
-	}
-
-	defer b.db.maxFilesSem.Release()
 	var (
 		encKey = b.db.encodeKey(key)
 		path   = filepath.Join(b.path, encKey)
@@ -312,12 +299,6 @@ func (b *bucket) GetAndRename(key string, nBkt Bucket, nKey string, overwrite bo
 	if !ok {
 		return os.ErrNotExist
 	}
-
-	if !b.db.maxFilesSem.Acquire() {
-		return ErrClosing
-	}
-
-	defer b.db.maxFilesSem.Release()
 
 	var (
 		rd    *Reader
@@ -611,12 +592,56 @@ func (b *bucket) Group(mws ...mw.Middleware) Bucket {
 	return &group{b, mws}
 }
 
-func (b *bucket) Export(w io.Writer) (err error) {
+func (b *bucket) Import(r io.Reader) error {
+	var tr *tar.Reader
+	if rd, ok := r.(*tar.Reader); ok {
+		tr = rd
+	} else {
+		tr = tar.NewReader(r)
+	}
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			continue
+		}
+		path, name := filepath.Split(hdr.Name)
+		path = strings.TrimSuffix(path, string(filepath.Separator))
+		if path == "" {
+			if err = b.Put(name, tr); err != nil {
+				return err
+			}
+			continue
+		}
+
+		bb, err := b.CreateBucket(strings.Split(path, string(filepath.Separator))...)
+		if err != nil {
+			return err
+		}
+		if err = bb.Put(name, tr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *bucket) Export(w io.Writer, exclude ...string) (err error) {
 	var (
 		tw          *tar.Writer
 		el          oerrs.ErrorList
 		rootPathLen = len(b.db.root.path) + 1 // strip the physical part of the path
+
 	)
+
+	if len(b.path) > rootPathLen && slices.Contains(exclude, b.path[rootPathLen:]) {
+		return nil
+	}
 
 	if otw, ok := w.(*tar.Writer); ok {
 		tw = otw
@@ -636,6 +661,11 @@ func (b *bucket) Export(w io.Writer) (err error) {
 			hdr     *tar.Header
 			rd      *Reader
 		)
+
+		if slices.Contains(exclude, tarPath) {
+			continue
+		}
+
 		if hdr, err = tar.FileInfoHeader(fi, ""); err != nil {
 			el.PushIf(err)
 			return
@@ -653,13 +683,12 @@ func (b *bucket) Export(w io.Writer) (err error) {
 		_, err = io.Copy(tw, rd)
 		rd.Close()
 		if err != nil {
-			el.PushIf(err)
 			return
 		}
 	}
 
 	for _, cb := range b.buckets {
-		if err = cb.Export(tw); err != nil {
+		if err = cb.Export(tw, exclude...); err != nil {
 			el.PushIf(err)
 			return
 		}
